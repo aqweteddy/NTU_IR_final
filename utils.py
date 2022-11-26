@@ -59,14 +59,19 @@ def LCS_score(q_preds, r_preds, q_tgts, r_tgts):
 
 
 class RestrictWordsProcessor(LogitsProcessor):
-    def __init__(self, input_ids: torch.LongTensor, vocab_size: int) -> None:
+    def __init__(self, input_ids: torch.LongTensor, vocab_size: int, ignore_tokens=None) -> None:
         super().__init__()
         onehot = F.one_hot(input_ids.detach().cpu(),
                            num_classes=vocab_size)  # [B, S, V]
+        # print(onehot.shape)
         self.restricted_vocab = onehot.sum(1).bool()  # [B, V]
+        if ignore_tokens is not None:
+            self.restricted_vocab[:, ignore_tokens] = False
 
     def __call__(self, input_ids: torch.LongTensor,
                  scores: torch.FloatTensor) -> torch.FloatTensor:
+        # print(input_ids.shape)
+        # print(scores.shape)
         scores[~self.restricted_vocab] = -float('inf')
         return scores
 
