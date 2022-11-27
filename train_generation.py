@@ -5,11 +5,10 @@ import torch
 from transformers import (DefaultDataCollator, EvalPrediction,
                           HfArgumentParser, AutoModelForSeq2SeqLM,
                           T5Tokenizer, Trainer, TrainingArguments)
-
+from custom_trainner import GenerationTrainer
 from dataset import GenerationDataset, split_train_test_df
 from opt import get_parser
 from utils import LCS_score, set_seed
-from dataclasses import dataclass
 
 
 class TaskTrainingArguments(TrainingArguments):
@@ -77,14 +76,13 @@ if __name__ == '__main__':
     os.makedirs(args.output_dir, exist_ok=True)
     with open(os.path.join(args.output_dir, 'args.json'), 'w') as f:
         json.dump(vars(args), f, ensure_ascii=False, indent=2)
-    trainer = Trainer(
+    trainer = GenerationTrainer(
         args=train_args,
         model=model,
         train_dataset=train_dataset,
         tokenizer=train_dataset.tokenizer,
         eval_dataset=valid_dataset,
         data_collator=get_datacolator(train_dataset.tokenizer.pad_token_id),
-        # compute_metrics=,
     )
     trainer.train()
     trainer.save_model()

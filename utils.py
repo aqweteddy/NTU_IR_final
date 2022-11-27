@@ -36,6 +36,18 @@ def lcs(X, Y):
     return L[m][n]
 
 
+def LCS_score_side(preds, tgts):
+    score = 0
+    translator = str.maketrans('', '', string.punctuation)
+    for p, ts in zip(preds, tgts):
+        sub_score = 0
+        p = tokenize.word_tokenize(p.translate(translator))
+        for t in ts:
+            t = tokenize.word_tokenize(t.translate(translator))
+            sub_score = max(sub_score, lcs(p, t) / len(p + t))
+        score += sub_score
+    return score / len(tgts)
+
 def LCS_score(q_preds, r_preds, q_tgts, r_tgts):
     score = 0
     translator = str.maketrans('', '', string.punctuation)
@@ -82,3 +94,4 @@ if __name__ == '__main__':
     q_preds = ['tgts q']
     r_preds = ['tgts r']
     print(LCS_score(q_preds, r_preds, q_tgts, r_tgts))
+    print(LCS_score_side(q_preds, q_tgts))

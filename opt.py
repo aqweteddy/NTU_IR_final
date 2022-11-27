@@ -12,6 +12,6 @@ def get_parser():
     parser.add_argument('--seed', type=int, default=1001)
     
     parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--aug_prob', type=float, default=0.5)
+    parser.add_argument('--aug_prob', type=float, default=0.)
     
     return parser

@@ -67,7 +67,14 @@ class GenerationDataset(data.Dataset):
                              padding='max_length',
                              truncation=True)
         return dct['input_ids'][0], dct['attention_mask'][0]
-
+    
+    @staticmethod
+    def swap_template(template: str):
+        inp = f'{template}'
+        inp = inp.replace("[q] <q>", "<tmp>")
+        inp = inp.replace("[r] <r>", "[q] <q>")
+        return  inp.replace("<tmp>", "[r] <r>")
+    
     def __getitem__(self, index):
         q, q_ = self.q[index // 2], self.q_[index // 2]
         r, r_ = self.r[index // 2], self.r_[index // 2]
@@ -78,18 +85,20 @@ class GenerationDataset(data.Dataset):
 
         tgt = f'[q] {q_}' if index % 2 == 0 else f'[r] {r_}'
         tgt = tgt.replace('\"', "")
-
-        inp = self.template_inp.replace('<q>', q).replace('<r>',
-                                                          r).replace('<s>', s)
+        if index % 2 == 1:  # tgt [r]
+            inp = self.swap_template(self.template_inp)
+        else:
+            inp = f'{self.template_inp}'
+            
+        inp = inp.replace('<q>', q).replace('<r>', r).replace('<s>', s)
         inp = inp.replace("\"", '')
-
         inp_ids, attn_mask = self.tokenize(inp, 512)
 
-        tgt_ids, tgt_attn_mask = self.tokenize(tgt, 150)
-        
+        tgt_ids, tgt_attn_mask = self.tokenize(tgt, 250)
+
         if tgt_ids[0] == self.tokenizer.bos_token_id:
             tgt_ids, tgt_attn_mask = tgt_ids[1:], tgt_attn_mask[1:]
-        
+
         return inp_ids, attn_mask, tgt_ids, tgt_attn_mask
 
 
@@ -248,9 +257,14 @@ if __name__ == '__main__':
     df = pd.read_csv('data/train.csv')
     train_df, test_df = split_train_test_df(df, 0.15)
     ds = GenerationDataset(train_df, 'facebook/bart-base', aug_prob=0.)
+    # ds = GenerationTestDataset(train_df, 'facebook/bart-base')
     # ds = BIODataset(train_df, 'bert-base-cased', aug_prob=0.5)
-    print(ds[0])
-    print(ds[1])
+    # print(ds[0])
+    # print(ds[1])
+    ds[0]
+    ds[1]
+    ds[2]
+    ds[3]
     # dl = data.DataLoader(ds, batch_size=8)
 
     # print(ds[0][2])
