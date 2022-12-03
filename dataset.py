@@ -8,6 +8,7 @@ import nlpaug.flow as naf
 from nlpaug.util import Action
 import random
 import utils
+import torch
 
 
 def split_train_test_df(df: pd.DataFrame, frac=float):
@@ -26,9 +27,9 @@ class GenerationDataset(data.Dataset):
         if '<q>' not in template_inp or '<r>' not in template_inp or '<s>' not in template_inp:
             raise ValueError('template error')
 
-        self.q = df['q'].tolist()
-        self.r = df['r'].tolist()
-        self.s = df['s'].tolist()
+        self.q: List[str] = df['q'].tolist()
+        self.r: List[str] = df['r'].tolist()
+        self.s: List[str] = df['s'].tolist()
         self.idx = df['id'].tolist()
         if 'q\'' in df.columns:
             self.q_ = df['q\''].tolist()
@@ -37,12 +38,12 @@ class GenerationDataset(data.Dataset):
             self.q_ = self.r_ = None
 
         self.template_inp = template_inp
-        if 't5' in pretrained:
-            self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
-                pretrained)
-        else:
-            self.tokenizer: AutoTokenizer = AutoTokenizer.from_pretrained(
-                pretrained)
+        # if 't5' in pretrained:
+        #     self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(
+        #         pretrained)
+        # else:
+        self.tokenizer: AutoTokenizer = AutoTokenizer.from_pretrained(
+            pretrained)
 
         if "[q]" not in self.tokenizer.get_added_vocab():
             self.tokenizer.add_tokens(["[q]", "[r]"])
@@ -60,21 +61,29 @@ class GenerationDataset(data.Dataset):
     def __len__(self):
         return len(self.s) * 2
 
-    def tokenize(self, x: str, maxlen=512):
+    def tokenize(self, x: str, maxlen=512, **kwargs):
         dct = self.tokenizer(x,
                              return_tensors='pt',
                              max_length=maxlen,
                              padding='max_length',
-                             truncation=True)
+                             truncation=True,
+                             **kwargs)
         return dct['input_ids'][0], dct['attention_mask'][0]
-    
+
     @staticmethod
     def swap_template(template: str):
         inp = f'{template}'
         inp = inp.replace("[q] <q>", "<tmp>")
         inp = inp.replace("[r] <r>", "[q] <q>")
-        return  inp.replace("<tmp>", "[r] <r>")
-    
+        return inp.replace("<tmp>", "[r] <r>")
+
+    @staticmethod
+    def get_inputs(q, r, s, template):
+        template = template.replace('<q>', q).replace('<r>',
+                                                      r).replace('<s>', s)
+        template = template.replace("\"", '')
+        return template
+
     def __getitem__(self, index):
         q, q_ = self.q[index // 2], self.q_[index // 2]
         r, r_ = self.r[index // 2], self.r_[index // 2]
@@ -89,17 +98,19 @@ class GenerationDataset(data.Dataset):
             inp = self.swap_template(self.template_inp)
         else:
             inp = f'{self.template_inp}'
-            
-        inp = inp.replace('<q>', q).replace('<r>', r).replace('<s>', s)
-        inp = inp.replace("\"", '')
-        inp_ids, attn_mask = self.tokenize(inp, 512)
 
-        tgt_ids, tgt_attn_mask = self.tokenize(tgt, 250)
+        inp = self.get_inputs(q, r, s, inp)
 
-        if tgt_ids[0] == self.tokenizer.bos_token_id:
-            tgt_ids, tgt_attn_mask = tgt_ids[1:], tgt_attn_mask[1:]
+        inp_ids, attn_mask = self.tokenize(inp, 1024)
+        tgt_ids, tgt_attn_mask = self.tokenize(tgt, 200)
 
-        return inp_ids, attn_mask, tgt_ids, tgt_attn_mask
+        # if tgt_ids[0] == self.tokenizer.bos_token_id:
+        #     tgt_ids, tgt_attn_mask = tgt_ids[1:], tgt_attn_mask[1:]
+        return {
+            'input_ids': inp_ids,
+            "attention_mask": attn_mask,
+            'labels': tgt_ids
+        }
 
 
 class GenerationTestDataset(GenerationDataset):
@@ -125,155 +136,160 @@ class GenerationTestDataset(GenerationDataset):
                                                           r).replace('<s>', s)
         inp = inp.replace("\"", '')
 
-        inp_ids, attn_mask = self.tokenize(inp, 512)
+        inp_ids, attn_mask = self.tokenize(inp, 1024)
         return self.idx[index], inp_ids, attn_mask
 
 
-class BIODataset(data.Dataset):
+class CopyDataset(GenerationDataset):
     def __init__(self,
                  df: pd.DataFrame,
-                 pretrained: str = 'bert-base-uncased',
+                 pretrained: str = 'google/t5-v1_1-small',
+                 template_inp: str = '[q] is <s> with [r]. [q] <q> [r] <r>',
                  aug_prob: float = 0.):
+        super().__init__(df, pretrained, template_inp, aug_prob)
 
-        self.q = df['q'].tolist()
-        self.r = df['r'].tolist()
-        self.s = df['s'].tolist()
-        self.idx = df['id'].tolist()
-        if 'q\'' in df.columns:
-            self.q_ = df['q\''].tolist()
-            self.r_ = df['r\''].tolist()
-        else:
-            self.q_ = self.r_ = None
+    def __get_tags(self, src: List[str], tgt: List[str]):
+        src, tgt = src.tolist(), tgt.tolist()
+        idx = len(src) - 1
+        while src[idx] == self.tokenizer.pad_token_id:
+            idx -= 1
+        src = src[:idx + 1]
 
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained)
-
-        self.aug_prob = aug_prob
-        self.augmetor = naf.Sometimes([
-            naw.RandomWordAug(action='swap'),
-            # naw.RandomWordAug(action='crop'),
-            # naw.AntonymAug(),
-            naw.RandomWordAug(),
-        ])
-
-    @staticmethod
-    def stripAndSplit(string):
-        ret = string
-        ret = ret[1:] if ret.startswith("\"") else ret
-        ret = ret[:-1] if ret.endswith("\"") else ret
-        ret = ret.split()
-        return ret
-
-    def tagging(self, q, q_, r, r_):
-        qtags = []
-        q = self.stripAndSplit(q)
-        qp = self.stripAndSplit(q_)
-
-        qindex = self.lcs(q, qp)
-        for i in range(len(q)):
-            if i in qindex:
-                qtags.append(1)
-            else:
-                qtags.append(0)
-
-        rtags = []
-        r = self.stripAndSplit(r)
-        rp = self.stripAndSplit(r_)
-
-        rindex = self.lcs(r, rp)
-        for i in range(len(r)):
-            if i in rindex:
-                rtags.append(1)
-            else:
-                rtags.append(0)
-
-        return qtags, rtags
+        idx = len(tgt) - 1
+        while tgt[idx] == self.tokenizer.pad_token_id:
+            idx -= 1
+        tgt = tgt[:idx + 1]
+        # src, tgt = self.stripAndSplit(src), self.stripAndSplit(tgt)
+        index = self.lcs(src, tgt)
+        # tags = [int(i in index) for i in range(len(src))]
+        return index
 
     def __getitem__(self, index):
-        q, q_ = self.q[index], self.q_[index]
-        r, r_ = self.r[index], self.r_[index]
-        s = self.s[index].lower()
-        qlabel, rlabel = self.tagging(q, q_, r, r_)
-        inputs = self.tokenizer(q + s,
-                                r,
-                                is_split_into_words=True,
-                                truncation=True,
-                                padding='max_length')
-        inputs["labels"] = self.align_labels_with_tokens(
-            qlabel + [-100] + rlabel, inputs.word_ids())
-        return inputs
+        q, q_ = self.q[index // 2], self.q_[index // 2]
+        r, r_ = self.r[index // 2], self.r_[index // 2]
+        s = self.s[index // 2].lower()
+        if index % 2 == 0:  # [q]
+            inp = f'{self.template_inp}'
+            tgt = f'[q] {q_}'
+        else:  # [r]
+            inp = self.swap_template(self.template_inp)
+            tgt = f'[r] {r_}'
+
+        tgt = tgt.replace('"', '')
+        inp = inp.replace('"', '')
+        tgt_ids, tgt_attn_mask = self.tokenize(tgt, 200)
+
+        inp = self.get_inputs(q, r, s, inp)
+        inp_ids, inp_attn_mask = self.tokenize(inp, maxlen=1024)
+
+        tgt_pos = self.__get_tags(inp_ids, tgt_ids)
+        tgt_pos += [-100] * (len(tgt_attn_mask) - len(tgt_pos))
+        return {
+            'input_ids': inp_ids,
+            "attention_mask": inp_attn_mask,
+            'decoder_input_ids': torch.LongTensor([0] + tgt_ids.tolist()[:-1]),
+            'labels': torch.LongTensor(tgt_pos)
+        }
 
     def __len__(self):
-        return len(self.q)
+        return len(self.q) * 2
 
     @staticmethod
-    def align_labels_with_tokens(labels, word_ids):
-        new_labels = []
-        current_word = None
-        for word_id in word_ids:
-            if word_id != current_word:
-                current_word = word_id
-                label = -100 if word_id is None else labels[word_id]
-                new_labels.append(label)
-            elif word_id is None:
-                new_labels.append(-100)
-            else:
-                label = labels[word_id]
-                new_labels.append(label)
+    def lcs(S1, S2):
+        m, n = len(S1), len(S2)
+        L = [[0 for x in range(n + 1)] for x in range(m + 1)]
 
-        return new_labels
-
-    @staticmethod
-    def lcs(X, Y):
-        m = len(X)
-        n = len(Y)
-
-        L = [[0 for i in range(n + 1)] for j in range(m + 1)]
-
+        # Building the mtrix in bottom-up way
         for i in range(m + 1):
             for j in range(n + 1):
                 if i == 0 or j == 0:
                     L[i][j] = 0
-                elif X[i - 1] == Y[j - 1]:
+                elif S1[i - 1] == S2[j - 1]:
                     L[i][j] = L[i - 1][j - 1] + 1
                 else:
                     L[i][j] = max(L[i - 1][j], L[i][j - 1])
 
-        index = []
-        i = 0
-        j = 0
-        while i < m and j < n:
-            if X[i] == Y[j]:
-                index.append(i)
-                i += 1
-                j += 1
-            else:
-                i += 1
+        index = L[m][n]
 
-        return index[::-1]
+        lcs_algo = [""] * (index + 1)
+        lcs_algo[index] = ""
+
+        i = m
+        j = n
+        result = []
+        while i > 0 and j > 0:
+
+            if S1[i - 1] == S2[j - 1]:
+                lcs_algo[index - 1] = S1[i - 1]
+                i -= 1
+                j -= 1
+                index -= 1
+                result.append(i)
+
+            elif L[i - 1][j] > L[i][j - 1]:
+                i -= 1
+            else:
+                j -= 1
+        return result[::-1]
+
+
+class RelClsDataset(GenerationDataset):
+    def __init__(self,
+                 df: pd.DataFrame,
+                 pretrained: str = 'google/t5-v1_1-small',
+                 aug_prob=0):
+        super().__init__(df, pretrained, '', aug_prob)
+        self.label2idx = {'DISAGREE': 0, 'AGREE': 1}
+
+    def __len__(self):
+        return len(self.q)
+
+    def __getitem__(self, index):
+        q = self.q_[index]
+        r = self.r_[index]
+        s = self.label2idx[self.s[index]]
+        if random.random() < self.aug_prob:
+            q, r = self.augmetor.augment(q)[0], self.augmetor.augment(r)[0]
+        dct = self.tokenizer(q,
+                             r,
+                             return_tensor='pt',
+                             padding='max_length',
+                             truncation=True,
+                             max_length=250,
+                             return_tensors='pt')
+
+        return {
+            'input_ids': dct.input_ids[0],
+            "attention_mask": dct.attention_mask[0],
+            'labels': s
+        }
 
 
 if __name__ == '__main__':
     from tqdm import tqdm
     df = pd.read_csv('data/train.csv')
-    train_df, test_df = split_train_test_df(df, 0.15)
-    ds = GenerationDataset(train_df, 'facebook/bart-base', aug_prob=0.)
+    ds = CopyDataset(df, 'google/pegasus-x-base', aug_prob=0.)
     # ds = GenerationTestDataset(train_df, 'facebook/bart-base')
     # ds = BIODataset(train_df, 'bert-base-cased', aug_prob=0.5)
-    # print(ds[0])
+    print(ds[0])
+    inp_ids, attn_mask, tgt_pos, tgt_attn_mask = ds[1]
+    print(ds.tokenizer.decode(inp_ids[tgt_pos]))
     # print(ds[1])
-    ds[0]
-    ds[1]
-    ds[2]
-    ds[3]
     # dl = data.DataLoader(ds, batch_size=8)
-
+    # maxlen, seq = 0, ""
+    # for d in tqdm(ds):
+    #     cnt = (d[0] != ds.tokenizer.pad_token_id).sum()
+    #     if cnt > maxlen:
+    #         maxlen = cnt
+    #         seq = d[0]
+    # print(maxlen, ds.tokenizer.decode(seq))
     # print(ds[0][2])
     # print(ds[1][2])
     # inp_ids, mask, start, end = ds[0]
     # print(ds.tokenizer.decode(inp_ids[start:end + 1]))
-    for batch in tqdm(dl):
-        pass
-        # print(batch)
+    # for batch in tqdm(ds):
+    #     pass
+    # print(batch)
 
     #     break
     # print(train_df.shape, test_df.shape)

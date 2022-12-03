@@ -12,6 +12,42 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+def lcs_seq(S1, S2):
+    m, n = len(S1), len(S2)
+    L = [[0 for x in range(n + 1)] for x in range(m + 1)]
+
+    # Building the mtrix in bottom-up way
+    for i in range(m + 1):
+        for j in range(n + 1):
+            if i == 0 or j == 0:
+                L[i][j] = 0
+            elif S1[i - 1] == S2[j - 1]:
+                L[i][j] = L[i - 1][j - 1] + 1
+            else:
+                L[i][j] = max(L[i - 1][j], L[i][j - 1])
+
+    index = L[m][n]
+
+    lcs_algo = [""] * (index + 1)
+    lcs_algo[index] = ""
+
+    i = m
+    j = n
+    result = []
+    while i > 0 and j > 0:
+
+        if S1[i - 1] == S2[j - 1]:
+            lcs_algo[index - 1] = S1[i - 1]
+            i -= 1
+            j -= 1
+            index -= 1
+            result.append(i)
+
+        elif L[i - 1][j] > L[i][j - 1]:
+            i -= 1
+        else:
+            j -= 1
+    return result[::-1]
 
 def lcs(X, Y):
     # find the length of the strings
@@ -60,10 +96,11 @@ def LCS_score(q_preds, r_preds, q_tgts, r_tgts):
             qt, rt = map(
                 lambda x: tokenize.word_tokenize(x.translate(translator)),
                 [qt, rt])
+            lcs_q, lcs_r = lcs(qp, qt), lcs(rp, rt)
             sub_score = max(
                 sub_score,
-                lcs(qp, qt) / len(set(qp + qt)) +
-                lcs(rp, rt) / len(set(rp + rt))
+                lcs(qp, qt) / len(len(qp) + len(qt) - lcs_q) +
+                lcs(rp, rt) / len(len(rp) + len(rt) + - lcs_r)
             )
         score += sub_score
     
@@ -86,6 +123,28 @@ class RestrictWordsProcessor(LogitsProcessor):
         # print(scores.shape)
         scores[~self.restricted_vocab] = -float('inf')
         return scores
+
+
+class CopyLogitProcessor(LogitsProcessor):
+    def __init__(self, input_ids: torch.LongTensor, vocab_size: int, restrict_direction=False) -> None:
+        super().__init__()
+        self.src_ids = input_ids # [B, S]
+        self.vocab_size = vocab_size
+        
+
+    def __call__(self, input_ids: torch.LongTensor,
+                 scores: torch.FloatTensor) -> torch.FloatTensor:
+        """
+        input_ids: B, 1
+        scores: B, S
+        -> B, vocab_size
+        """
+        result = torch.zeros(input_ids.shape[0], self.vocab_size, device=input_ids.device)
+        # next_indices = scores.argmax(-1)
+        for i in range(len(input_ids)):
+            result[i, src_id] = scores
+            
+        return result
 
 
 if __name__ == '__main__':

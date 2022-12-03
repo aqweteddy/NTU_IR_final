@@ -60,3 +60,26 @@ python train.py
 * step: 29368
     * 0.8080764672974365
     * public test: 0.80042
+
+
+### Long T5-base (swap smooth 0.15)
+* step 29368
+    * public: 0.805487
+    * `+LCS`: 0.82367
+
+### T5-base swap smooth:0.2 (delete)
+* step: 22026
+    * 0.8119425763327204
+    * public test: 0.793643
+* step: 29368
+    * 0.804438358960027
+    * public test: 0.801661
+* LongT5
+* PegasusX
+* ProphetNet
+
+
+## Method
+* train a relation detector to filter good data.
+* t5: r', q' -> r, q
+* 
