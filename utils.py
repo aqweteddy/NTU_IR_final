@@ -12,6 +12,13 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+
+def get_lcs_seq(X, Y):
+    X, Y = tokenize.word_tokenize(X), tokenize.word_tokenize(Y)
+    seq = lcs_seq(X, Y)
+    return ' '.join([X[s] for s in seq])
+
+
 def lcs_seq(S1, S2):
     m, n = len(S1), len(S2)
     L = [[0 for x in range(n + 1)] for x in range(m + 1)]
@@ -49,6 +56,7 @@ def lcs_seq(S1, S2):
             j -= 1
     return result[::-1]
 
+
 def lcs(X, Y):
     # find the length of the strings
     m = len(X)
@@ -84,6 +92,7 @@ def LCS_score_side(preds, tgts):
         score += sub_score
     return score / len(tgts)
 
+
 def LCS_score(q_preds, r_preds, q_tgts, r_tgts):
     score = 0
     translator = str.maketrans('', '', string.punctuation)
@@ -100,15 +109,17 @@ def LCS_score(q_preds, r_preds, q_tgts, r_tgts):
             sub_score = max(
                 sub_score,
                 lcs(qp, qt) / len(len(qp) + len(qt) - lcs_q) +
-                lcs(rp, rt) / len(len(rp) + len(rt) + - lcs_r)
-            )
+                lcs(rp, rt) / len(len(rp) + len(rt) + -lcs_r))
         score += sub_score
-    
+
     return score / (2 * len(q_tgts))
 
 
 class RestrictWordsProcessor(LogitsProcessor):
-    def __init__(self, input_ids: torch.LongTensor, vocab_size: int, ignore_tokens=None) -> None:
+    def __init__(self,
+                 input_ids: torch.LongTensor,
+                 vocab_size: int,
+                 ignore_tokens=None) -> None:
         super().__init__()
         onehot = F.one_hot(input_ids.detach().cpu(),
                            num_classes=vocab_size)  # [B, S, V]
@@ -126,11 +137,13 @@ class RestrictWordsProcessor(LogitsProcessor):
 
 
 class CopyLogitProcessor(LogitsProcessor):
-    def __init__(self, input_ids: torch.LongTensor, vocab_size: int, restrict_direction=False) -> None:
+    def __init__(self,
+                 input_ids: torch.LongTensor,
+                 vocab_size: int,
+                 restrict_direction=False) -> None:
         super().__init__()
-        self.src_ids = input_ids # [B, S]
+        self.src_ids = input_ids  # [B, S]
         self.vocab_size = vocab_size
-        
 
     def __call__(self, input_ids: torch.LongTensor,
                  scores: torch.FloatTensor) -> torch.FloatTensor:
@@ -139,11 +152,13 @@ class CopyLogitProcessor(LogitsProcessor):
         scores: B, S
         -> B, vocab_size
         """
-        result = torch.zeros(input_ids.shape[0], self.vocab_size, device=input_ids.device)
+        result = torch.zeros(input_ids.shape[0],
+                             self.vocab_size,
+                             device=input_ids.device)
         # next_indices = scores.argmax(-1)
         for i in range(len(input_ids)):
             result[i, src_id] = scores
-            
+
         return result
 
 

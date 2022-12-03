@@ -1,5 +1,8 @@
 import pandas as pd
 from argparse import ArgumentParser
+import sys
+sys.path.append('..')
+import utils
 import utils, csv
 from tqdm import tqdm
 from nltk import tokenize

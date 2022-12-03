@@ -9,7 +9,6 @@ import utils, csv
 from dataset import GenerationTestDataset
 from opt import get_parser
 from model import LongT5ForCopyGeneration
-from gen_aug_data import get_lcs_seq
 
 
 def generate(model: AutoModelForSeq2SeqLM, inp_ids: torch.Tensor,
@@ -75,7 +74,7 @@ def generate(model: AutoModelForSeq2SeqLM, inp_ids: torch.Tensor,
     ]
     # return result
     return [
-        get_lcs_seq(src, pred) for pred, src in zip(
+        utils.get_lcs_seq(src, pred) for pred, src in zip(
             result, tokenizer.batch_decode(inp_ids, skip_special_tokens=True))
     ]
     # print(result[-1])
