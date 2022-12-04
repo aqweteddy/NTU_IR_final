@@ -74,6 +74,15 @@ python train.py
 * step: 29368
     * 0.804438358960027
     * public test: 0.801661
+
+### T5-base swap smooth:0.2 (same word replace=0.5)
+* step 8149
+    * 0.782
+    * publicTest: 0.825472
+
+* step 40745
+    * public test: 0.81479
+
 * LongT5
 * PegasusX
 * ProphetNet

@@ -87,7 +87,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     utils.set_seed(args.seed)
 
-    test_df = pd.read_csv(args.data)
+    test_df = pd.read_csv(args.data[0])
     if args.copy_mode:
         model = LongT5ForCopyGeneration.from_pretrained(
             args.pretrained).to('cuda')
@@ -110,11 +110,7 @@ if __name__ == '__main__':
     for idxs, inp_ids, attn_mask in tqdm(dl_qr):
         q_preds.extend(generate(model, inp_ids, attn_mask, tokenizer, q_bos))
         ids.extend(idxs.tolist())
-        # print(q_preds[-1])
-        # print(q_preds[-1])
-        # print(r_preds[-1])
-        # print(q_preds[-1])
-        print(q_preds[-1])
+        
     print(ds_rq.template_inp)
     for idxs, inp_ids, attn_mask in tqdm(dl_rq):
         r_preds.extend(generate(model, inp_ids, attn_mask, tokenizer, r_bos))

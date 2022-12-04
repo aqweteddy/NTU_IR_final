@@ -108,8 +108,8 @@ def LCS_score(q_preds, r_preds, q_tgts, r_tgts):
             lcs_q, lcs_r = lcs(qp, qt), lcs(rp, rt)
             sub_score = max(
                 sub_score,
-                lcs(qp, qt) / len(len(qp) + len(qt) - lcs_q) +
-                lcs(rp, rt) / len(len(rp) + len(rt) + -lcs_r))
+                lcs_q / (len(qp) + len(qt) - lcs_q) +
+                lcs_r / (len(rp) + len(rt) -lcs_r))
         score += sub_score
 
     return score / (2 * len(q_tgts))

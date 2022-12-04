@@ -9,7 +9,7 @@ from nlpaug.util import Action
 import random
 import utils
 import torch
-
+from augmentation import SameWordAugmentor
 
 def split_train_test_df(df: pd.DataFrame, frac=float):
     test_idx = pd.Series(df['q'].unique()).sample(frac=frac)
@@ -51,12 +51,9 @@ class GenerationDataset(data.Dataset):
             # self.tokenizer.add_special_tokens()
 
         self.aug_prob = aug_prob
-        self.augmetor = naf.Sometimes([
-            naw.RandomWordAug(action='swap'),
-            # naw.RandomWordAug(action='crop'),
-            # naw.AntonymAug(),
-            naw.RandomWordAug(),
-        ])
+        if aug_prob > 0:
+            self.augmetor = SameWordAugmentor(w2v_path='./word2vec/enwiki_20180420_100d.txt',
+                                            prob=0.1)
 
     def __len__(self):
         return len(self.s) * 2
@@ -90,8 +87,9 @@ class GenerationDataset(data.Dataset):
         s = self.s[index // 2].lower()
 
         if random.random() < self.aug_prob:
-            q, r = self.augmetor.augment(q)[0], self.augmetor.augment(r)[0]
-
+            q, q_ = self.augmetor.augment(q, q_)
+        if random.random() < self.aug_prob:
+            r, r_ = self.augmetor.augment(r, r_)
         tgt = f'[q] {q_}' if index % 2 == 0 else f'[r] {r_}'
         tgt = tgt.replace('\"', "")
         if index % 2 == 1:  # tgt [r]
