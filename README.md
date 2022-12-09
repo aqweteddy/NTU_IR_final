@@ -8,6 +8,16 @@
 
 * random split train / test: 0.85 / 0.15
 
+## How to reproduce ?
+* `pip install -r requirements.txt`
+* training
+```sh
+python train_generation.py --pretrained google/long-t5-tglobal-base --batch_size 2 --output_dir <outputDir> --template_inp "[q] <q> is <s> with [r] <r>"
+```
+* generation
+    * use validation set to find the best epoch.
+    * `python eval.py --pretrained <path to check point> --data data/test.csv --dest <output csv>`
+
 ## Method
 
 * T5 conditional generation
