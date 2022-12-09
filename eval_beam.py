@@ -9,10 +9,42 @@ import utils, csv
 from dataset import GenerationTestDataset
 from opt import get_parser
 from model import LongT5ForCopyGeneration
+from typing import List, Tuple
 
 
-def generate(model: AutoModelForSeq2SeqLM, inp_ids: torch.Tensor,
-             attn_mask: torch.Tensor, tokenizer, bos_token, device='cuda', **kwargs):
+def find_best_result(beam_result: List[Tuple[str, str]], original_text: str):
+    # scores = [
+    #     utils.LCS_score_side([r], [[original_text]]) for r in beam_result
+    # ]
+    # print(original_text)
+    # print(beam_result)
+    # print(scores)
+    # idx = scores.index(max(scores))
+    
+    beam_result = [(utils.get_lcs_seq(original_text, r), s) for r, s in beam_result]
+    # print(beam_result)
+    # lens = list(map(lambda x: len(x.split()), beam_result))
+    scores = [
+         s for r, s in beam_result
+    ]
+
+    idx = scores.index(max(scores))
+    # print(beam_result[idx])
+    return beam_result[idx][0]
+    # return utils.get_lcs_seq(original_text, beam_result[idx])
+
+
+def generate(model: AutoModelForSeq2SeqLM,
+             inp_ids: torch.Tensor,
+             attn_mask: torch.Tensor,
+             tokenizer,
+             bos_token,
+             text,
+             device='cuda',
+             num_seqs=5,
+             **kwargs):
+    assert inp_ids.shape[0] == len(text)
+
     tr_pos = len(inp_ids[0]) - 1
     while (inp_ids[:, tr_pos] != 0).sum() == 0:
         tr_pos -= 1
@@ -34,50 +66,51 @@ def generate(model: AutoModelForSeq2SeqLM, inp_ids: torch.Tensor,
         bos_token_id = q_bos
         # for r in q_idx:
         #     vocab[r[0], :r[1]] = tokenizer.pad_token_id
-    
+
     # bos_token_id = r_bos if bos_token == '[r]' else q_bos
 
     inp_ids, attn_mask = inp_ids.to(device), attn_mask.to(device)
+    model.config.output_scores = True
     beam_result = model.generate(
         inp_ids,
         attention_mask=attn_mask,
-        max_new_tokens=200,
-        early_stopping=True,
+        max_new_tokens=150,
+        # early_stopping=True,
         logits_processor=LogitsProcessorList(
             [utils.RestrictWordsProcessor(vocab, len(tokenizer))]),
         renormalize_logits=True,
         # forced_bos_token_id=bos_token_id,
         # decoder_start_token_id=bos_token_id,
         forced_decoder_ids=[[1, bos_token_id]],
-        num_beams=1,
-        num_return_sequences=1,
+        num_beams=num_seqs,
+        # repetition_penalty=1.3,
+        # num_beam_groups=5,
+        num_return_sequences=num_seqs,
+        do_sample=True,
+        top_p=0.15,
+        temperature=1.2,
+        return_dict_in_generate=True, output_scores=True,
         **kwargs)
-    result = beam_result
-    # beam_result = beam_result.reshape(-1, 3, beam_result.shape[-1])
-    # for preds, tgt_ids in zip(beam_result, inp_ids.tolist()):
-    #     max_seq, max_score = [], 0
-    #     tgt_ids = [w for w in tgt_ids if w != 0]
-    #     # print(tokenizer.batch_decode(preds, skip_special_tokens=True))
-    #     for p in preds:
-    #         sc = utils.lcs([w for w in p if w != 0], tgt_ids) / (len(tgt_ids) + len(p))
-    #         if sc > max_score:
-    #             max_score, max_seq = sc, p
+    # print(beam_result)
+    scores, result = beam_result.sequences_scores, beam_result.sequences
+    # scores = torch.softmax(scores, -1)
+    scores = scores.exp()
+    # print(scores)
+    
+    result = tokenizer.batch_decode(result[:, 2:],
+                                    skip_special_tokens=True)
+    result = [r.replace(bos_token, '').strip() for r in result]
+    best_result = []
+    batch = []
+    for r, s in zip(result, scores):
+        batch.append((r, s))
+        if len(batch) == num_seqs:
+            best_result.append(find_best_result(batch, text[len(best_result)]))
+            batch = []
+    if len(batch) != 0:
+        best_result.append(find_best_result(batch, text[len(best_result)]))
 
-    #     result.append(max_seq)
-
-    # result = torch.stack(result)
-
-    result = [
-        r.replace(bos_token, '').strip()
-        for r in tokenizer.batch_decode(result[:, 2:], skip_special_tokens=True)
-    ]
-    return result
-    # return [
-    #     utils.get_lcs_seq(src, pred) for pred, src in zip(
-    #         result, tokenizer.batch_decode(inp_ids, skip_special_tokens=True))
-    # ]
-    # print(result[-1])
-    # return tokenizer.batch_decode(result, skip_special_tokens=True)
+    return best_result
 
 
 if __name__ == '__main__':
@@ -106,21 +139,23 @@ if __name__ == '__main__':
     print(r_bos, q_bos)
     r_preds, q_preds, ids = [], [], []
     print(ds_qr.template_inp)
-    
+
     for idxs, inp_ids, attn_mask in tqdm(dl_qr):
-        q_pred = generate(model, inp_ids, attn_mask, tokenizer, q_bos)
-        q_preds.extend(q_pred)
+        q_text = [ds_qr.get_qr(i)[0] for i in idxs]
+        q_preds.extend(
+            generate(model, inp_ids, attn_mask, tokenizer, q_bos, q_text))
         ids.extend(idxs.tolist())
-    q_text, r_text = [ds_qr.get_qr(i)[0] for i in ids], [ds_qr.get_qr(i)[1] for i in ids]
-    q_preds = [utils.get_lcs_seq(text, pred) for text, pred in zip(q_text, q_preds)]
-    model = AutoModelForSeq2SeqLM.from_pretrained(
-            args.pretrained).to('cuda')
-    
+
+    model = AutoModelForSeq2SeqLM.from_pretrained(args.pretrained).to('cuda')
+
     model.eval()
     print(ds_rq.template_inp)
     for idxs, inp_ids, attn_mask in tqdm(dl_rq):
-        r_preds.extend(generate(model, inp_ids, attn_mask, tokenizer, r_bos))
-    r_preds = [utils.get_lcs_seq(text, pred) for text, pred in zip(r_text, r_preds)]
+        r_text = [ds_rq.get_qr(i)[1] for i in idxs]
+        r_preds.extend(
+            generate(model, inp_ids, attn_mask, tokenizer, r_bos, r_text))
+
+    print(len(q_preds), len(r_preds), len(ids))
     assert len(q_preds) == len(r_preds)
     assert len(ids) == len(r_preds)
 

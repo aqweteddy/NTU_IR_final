@@ -88,7 +88,8 @@ def LCS_score_side(preds, tgts):
         p = tokenize.word_tokenize(p.translate(translator))
         for t in ts:
             t = tokenize.word_tokenize(t.translate(translator))
-            sub_score = max(sub_score, lcs(p, t) / len(p + t))
+            lcs_ = lcs(p, t)
+            sub_score = max(sub_score, lcs(p, t) / max(len(p) + len(t) - lcs_, 1))
         score += sub_score
     return score / len(tgts)
 
@@ -107,9 +108,8 @@ def LCS_score(q_preds, r_preds, q_tgts, r_tgts):
                 [qt, rt])
             lcs_q, lcs_r = lcs(qp, qt), lcs(rp, rt)
             sub_score = max(
-                sub_score,
-                lcs_q / (len(qp) + len(qt) - lcs_q) +
-                lcs_r / (len(rp) + len(rt) -lcs_r))
+                sub_score, lcs_q / (len(qp) + len(qt) - lcs_q) + lcs_r /
+                (len(rp) + len(rt) - lcs_r))
         score += sub_score
 
     return score / (2 * len(q_tgts))
@@ -124,6 +124,7 @@ class RestrictWordsProcessor(LogitsProcessor):
         onehot = F.one_hot(input_ids.detach().cpu(),
                            num_classes=vocab_size)  # [B, S, V]
         # print(onehot.shape)
+        self.vocab_size = vocab_size
         self.restricted_vocab = onehot.sum(1).bool()  # [B, V]
         if ignore_tokens is not None:
             self.restricted_vocab[:, ignore_tokens] = False
@@ -132,7 +133,14 @@ class RestrictWordsProcessor(LogitsProcessor):
                  scores: torch.FloatTensor) -> torch.FloatTensor:
         # print(input_ids.shape)
         # print(scores.shape)
-        scores[~self.restricted_vocab] = -float('inf')
+        batch_size = scores.shape[0]
+        if batch_size != self.restricted_vocab.shape[0]:
+            num_seq = int(batch_size / self.restricted_vocab.shape[0])
+            mask = (~self.restricted_vocab).repeat(1, num_seq).reshape(
+                -1, self.vocab_size)
+            scores[mask] = -float('inf')
+        else:
+            scores[~self.restricted_vocab] = -float('inf')
         return scores
 
 

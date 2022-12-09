@@ -11,6 +11,7 @@ import utils
 import torch
 from augmentation import SameWordAugmentor
 
+
 def split_train_test_df(df: pd.DataFrame, frac=float):
     test_idx = pd.Series(df['q'].unique()).sample(frac=frac)
     test_df = df.loc[df['q'].isin(test_idx)]
@@ -52,8 +53,8 @@ class GenerationDataset(data.Dataset):
 
         self.aug_prob = aug_prob
         if aug_prob > 0:
-            self.augmetor = SameWordAugmentor(w2v_path='./word2vec/enwiki_20180420_100d.txt',
-                                            prob=0.1)
+            self.augmetor = SameWordAugmentor(
+                w2v_path='./word2vec/enwiki_20180420_100d.txt', prob=0.1)
 
     def __len__(self):
         return len(self.s) * 2
@@ -123,6 +124,12 @@ class GenerationTestDataset(GenerationDataset):
     def __len__(self):
         return len(self.unique_idx)
 
+    def get_qr(self, idx):
+        index = self.idx.index(idx)
+        q = self.q[index]
+        r = self.r[index]
+        return q, r
+
     def __getitem__(self, index):
         index = self.idx.index(self.unique_idx[index])
 
@@ -134,7 +141,7 @@ class GenerationTestDataset(GenerationDataset):
                                                           r).replace('<s>', s)
         inp = inp.replace("\"", '')
 
-        inp_ids, attn_mask = self.tokenize(inp, 1024)
+        inp_ids, attn_mask = self.tokenize(inp, 512)
         return self.idx[index], inp_ids, attn_mask
 
 
