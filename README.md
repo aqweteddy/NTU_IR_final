@@ -23,14 +23,14 @@ python train_generation.py --pretrained google/long-t5-tglobal-base --batch_size
 * T5 conditional generation
 * define 2 new tokens: `[r]`, `[q]`, represent start of `r` and `q`
 * model input template: 
-    * `[q] is <s> with [r]. [q] <q> [r] <r>`
+    * `[q] is <s> with [r]. [q] <q> [r] <r>` or  `[q] <q> is <s> with [r] <r>`
     * `<q> <r> <s>` will be replaced with context.
     * `<s>` is the relation between `<q> and <r>`.
 * model output template:
     * generate `r'`: `[r] ....`
     * generate `q'`: `[q] ....`
 ```py
-python train.py
+python train_generation.py
 # see args in opt.py 
 ```
 
