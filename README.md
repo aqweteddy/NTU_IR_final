@@ -4,6 +4,12 @@
 
 * [自然語言理解的解釋性資訊標記競賽](https://tbrain.trendmicro.com.tw/Competitions/Details/26)
 
+## Envirounment
+
+* Ubuntu 20.04
+* GPU: 2080ti
+* python 3.8
+
 ## data
 
 * random split train / test: 0.85 / 0.15
